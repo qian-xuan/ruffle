@@ -8,6 +8,7 @@ use crate::context::UpdateContext;
 use crate::net_connection::{NetConnectionHandle, NetConnections, ResponderCallback};
 use crate::string::AvmString;
 use flash_lso::packet::Header;
+use flash_lso::types::AMFVersion;
 use flash_lso::types::ObjectId;
 use flash_lso::types::Value as AMFValue;
 use gc_arena::{Collect, Gc};
@@ -331,7 +332,12 @@ fn connect<'gc>(
         || url_lower.starts_with(WStr::from_units(b"https://"))
     {
         // HTTP(S) is for Flash Remoting, which is just POST requests to the URL.
-        NetConnections::connect_to_flash_remoting(activation.context, this, url.to_string());
+        NetConnections::connect_to_flash_remoting(
+            activation.context,
+            this,
+            url.to_string(),
+            AMFVersion::AMF0,
+        );
     } else {
         avm1_stub!(
             activation,
