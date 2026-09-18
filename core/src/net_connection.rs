@@ -169,6 +169,7 @@ impl<'gc> NetConnections<'gc> {
         context: &mut UpdateContext<'gc>,
         target: O,
         url: String,
+        amf_version: AMFVersion,
     ) {
         let target = target.into();
         let connection = NetConnection {
@@ -177,6 +178,7 @@ impl<'gc> NetConnections<'gc> {
                 url,
                 headers: vec![],
                 outgoing_queue: vec![],
+                amf_version,
             }),
         };
         let handle = context.net_connections.connections.insert(connection);
@@ -468,6 +470,7 @@ pub struct FlashRemoting {
     url: String,
     headers: Vec<Header>,
     outgoing_queue: Vec<(Message, Option<ResponderHandle>)>,
+    amf_version: AMFVersion,
 }
 
 impl FlashRemoting {
@@ -507,7 +510,7 @@ impl FlashRemoting {
         let queue = std::mem::take(&mut self.outgoing_queue);
         let (messages, responder_handles): (Vec<_>, Vec<_>) = queue.into_iter().unzip();
         let packet = Packet {
-            version: AMFVersion::AMF0,
+            version: self.amf_version,
             headers: self.headers.clone(),
             messages,
         };
