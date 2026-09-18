@@ -17,18 +17,38 @@ use fnv::FnvHashMap;
 use ruffle_wstr::WStr;
 use std::rc::Rc;
 
+/// Read the `objectEncoding` property from a NetConnection AS3 object
+/// and return the corresponding AMFVersion.
+fn get_amf_version<'gc>(activation: &mut Activation<'_, 'gc>, this: Value<'gc>) -> AMFVersion {
+    let object_encoding = this
+        .get_public_property(
+            AvmString::new_utf8(activation.gc(), "objectEncoding"),
+            activation,
+        )
+        .ok()
+        .and_then(|v| match v {
+            Value::Integer(i) => Some(i),
+            _ => None,
+        });
+    match object_encoding {
+        Some(3) => AMFVersion::AMF3,
+        _ => AMFVersion::AMF0,
+    }
+}
+
 pub fn connect<'gc>(
     activation: &mut Activation<'_, 'gc>,
     this: Value<'gc>,
     args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    let this = this.as_object().unwrap();
+    let this_obj = this.as_object().unwrap();
 
-    let connection = this
+    let connection = this_obj
         .as_net_connection()
         .expect("Must be NetConnection object");
 
     let url = args.try_get_string(0);
+    let amf_version = get_amf_version(activation, this);
 
     if let Some(url) = url {
         let url_lower = url.to_ascii_lowercase();
@@ -41,6 +61,7 @@ pub fn connect<'gc>(
                 activation.context,
                 connection,
                 url.to_string(),
+                amf_version,
             );
         } else {
             avm2_stub_method!(
@@ -279,11 +300,12 @@ pub fn call<'gc>(
 
     let command = args.get_string(activation, 0);
     let responder = args.try_get_object(1).and_then(|o| o.as_responder());
+    let amf_version = get_amf_version(activation, this.into());
     let mut arguments = Vec::new();
 
     let mut object_table = FnvHashMap::default();
     for arg in args.get_slice_from(2..) {
-        let value = serialize_value(activation, arg, AMFVersion::AMF0, &mut object_table);
+        let value = serialize_value(activation, arg, amf_version, &mut object_table);
         arguments.push(Rc::new(value));
     }
 
@@ -333,11 +355,12 @@ pub fn add_header<'gc>(
 
     let name = args.get_string(activation, 0);
     let must_understand = args.get_bool(1);
+    let amf_version = get_amf_version(activation, this.into());
     // FIXME - do we re-use the same object reference table for all headers?
     let value = serialize_value(
         activation,
         args.get_value(2),
-        AMFVersion::AMF0,
+        amf_version,
         &mut Default::default(),
     );
 
