@@ -182,23 +182,26 @@ impl<'gc> TextLine<'gc> {
         self.0.fallback.measure_text(context)
     }
 
-    /// Returns the laid-out line's `(ascent, descent)`.
-    pub fn metrics(self) -> (f64, f64) {
-        let layout = self.0.fallback.layout();
-        let Some(line) = layout.lines().first() else {
-            debug_assert!(false, "Should not be reachable");
-            return Default::default();
-        };
-
-        (line.ascent().to_pixels(), line.descent().to_pixels())
+    /// Returns the laid-out line metrics, reading from the actual layout
+    /// if the stored metrics haven't been set yet.
+    pub fn metrics(self) -> LineMetrics {
+        let stored = self.0.metrics.get();
+        if stored.ascent.to_pixels() != 0.0 || stored.descent.to_pixels() != 0.0 {
+            stored
+        } else {
+            let layout = self.0.fallback.layout();
+            let Some(line) = layout.lines().first() else {
+                return stored;
+            };
+            let mut m = stored;
+            m.ascent = Twips::from_pixels(line.ascent().to_pixels());
+            m.descent = Twips::from_pixels(line.descent().to_pixels());
+            m
+        }
     }
 
     pub fn fallback(self) -> EditText<'gc> {
         self.0.fallback
-    }
-
-    pub fn metrics(self) -> LineMetrics {
-        self.0.metrics.get()
     }
 
     pub fn set_metrics(self, metrics: LineMetrics) {
