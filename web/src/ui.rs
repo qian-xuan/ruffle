@@ -330,13 +330,15 @@ impl UiBackend for WebUiBackend {
     }
 
     fn load_device_font(&self, query: &FontQuery, register: &mut dyn FnMut(FontDefinition)) {
-        if !self.use_canvas_font_renderer {
-            // In case we don't use the canvas font renderer,
-            // because fonts must be loaded instantly (no async),
-            // we actually just provide them all upfront at time of Player creation.
-            return;
-        }
-
+        // Plan B: supply any on-demand device font via the browser canvas renderer,
+        // regardless of the configured `device_font_renderer` mode. This function is
+        // only invoked for fonts not already registered — the embedded "Noto Sans"
+        // and any SWF-embedded fonts are cached up front at Player creation and
+        // short-circuit before reaching here. So this covers device fonts the
+        // embedded set lacks (e.g. "Microsoft YaHei" for CJK), giving them
+        // browser-rendered glyphs instead of dropping them ("Unknown device font" +
+        // blank text). FTE keeps doing layout: it consumes the FontRenderer metrics
+        // and glyphs supplied here, whether the source is the embedded font or canvas.
         let renderer = canvas_font_renderer::CanvasFontRenderer::new(
             query.is_italic,
             query.is_bold,
@@ -347,10 +349,11 @@ impl UiBackend for WebUiBackend {
         match renderer {
             Ok(renderer) => {
                 tracing::info!(
-                    "Loaded a new canvas font renderer for font \"{}\", italic: {}, bold: {}",
+                    "Loaded a new canvas font renderer for font \"{}\", italic: {}, bold: {}, canvas_mode: {}",
                     query.name,
                     query.is_italic,
-                    query.is_bold
+                    query.is_bold,
+                    self.use_canvas_font_renderer,
                 );
                 register(FontDefinition::ExternalRenderer {
                     name: query.name.clone(),
