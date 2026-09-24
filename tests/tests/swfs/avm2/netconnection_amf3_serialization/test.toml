@@ -1,0 +1,12 @@
+# This test uses the mock localhost navigator, so it doesn't run in Flash Player.
+# The expected output was captured from Ruffle and verified by hand: the first
+# two bytes of the AMF body are [0x00, 0x03], confirming AMF3 version encoding.
+num_ticks = 10
+log_fetch = true
+
+[[compilers]]
+type = "Asc"
+target = "test.swf"
+class = "Test"
+scripts = ["Test.as"]
+swf_version = 9
