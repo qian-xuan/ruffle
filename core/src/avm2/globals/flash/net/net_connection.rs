@@ -306,6 +306,13 @@ pub fn call<'gc>(
     let mut object_table = FnvHashMap::default();
     for arg in args.get_slice_from(2..) {
         let value = serialize_value(activation, arg, amf_version, &mut object_table);
+        // When using AMF3, each argument must be wrapped in an AMF0 0x11 marker
+        // so that the server knows to decode it as AMF3 rather than AMF0.
+        let value = if amf_version == AMFVersion::AMF3 {
+            AMFValue::AMF3(Rc::new(value))
+        } else {
+            value
+        };
         arguments.push(Rc::new(value));
     }
 
@@ -363,6 +370,12 @@ pub fn add_header<'gc>(
         amf_version,
         &mut Default::default(),
     );
+    // When using AMF3, header values must be wrapped in an AMF0 0x11 marker.
+    let value = if amf_version == AMFVersion::AMF3 {
+        AMFValue::AMF3(Rc::new(value))
+    } else {
+        value
+    };
 
     if let Some(handle) = connection.handle() {
         activation.context.net_connections.set_header(
