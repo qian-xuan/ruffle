@@ -1,0 +1,6 @@
+--- Testing AMF3 Array Serialization ---
+Navigator::fetch:
+  URL: http://localhost:8000/
+  Method: POST
+  Mime-Type: application/x-amf
+  Body: [00, 03, 00, 00, 00, 01, 00, 0A, 74, 65, 73, 74, 2E, 61, 72, 72, 61, 79, 00, 02, 2F, 31, 00, 00, 00, 11, 0A, 00, 00, 00, 01, 11, 09, 07, 01, 04, 01, 06, 07, 74, 77, 6F, 03]

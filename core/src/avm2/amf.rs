@@ -75,7 +75,7 @@ pub fn serialize_value<'gc>(
                 }
             } else if let Some(vec) = o.as_vector_storage() {
                 let val_type = vec.value_type();
-                if val_type == Some(activation.avm2().class_defs().int) {
+                let value = if val_type == Some(activation.avm2().class_defs().int) {
                     let int_vec: Vec<_> = vec.iter().map(|v| v.as_i32()).collect();
                     AmfValue::VectorInt(int_vec, vec.is_fixed())
                 } else if val_type == Some(activation.avm2().class_defs().uint) {
@@ -94,6 +94,14 @@ pub fn serialize_value<'gc>(
 
                     let name = class_to_alias(activation, val_type);
                     AmfValue::VectorObject(ObjectId::INVALID, obj_vec, name, vec.is_fixed())
+                };
+                // Vector is an AMF3-only type. In AMF0 mode it must be embedded
+                // via the 0x11 marker so the AMF0 writer doesn't silently
+                // replace it with an Unsupported marker.
+                if amf_version == AMFVersion::AMF0 {
+                    AmfValue::AMF3(Rc::new(value))
+                } else {
+                    value
                 }
             } else if let Some(date) = o.as_date_object() {
                 let time = date
@@ -108,7 +116,13 @@ pub fn serialize_value<'gc>(
                 // `is_string` is `true` for the AS3 XML class
                 AmfValue::XML(xml.node().xml_to_xml_string(activation).to_string(), true)
             } else if let Some(bytearray) = o.as_bytearray() {
-                AmfValue::ByteArray(bytearray.bytes().to_vec())
+                let value = AmfValue::ByteArray(bytearray.bytes().to_vec());
+                // ByteArray is an AMF3-only type; embed via 0x11 in AMF0 mode.
+                if amf_version == AMFVersion::AMF0 {
+                    AmfValue::AMF3(Rc::new(value))
+                } else {
+                    value
+                }
             } else if let Some(dictionary) = o.as_dictionary_object() {
                 // FIXME change this once weak keys are implemented
                 let has_weak_keys = false;
@@ -135,7 +149,13 @@ pub fn serialize_value<'gc>(
                         .unwrap();
                 }
 
-                AmfValue::Dictionary(ObjectId::INVALID, dictionary_body, has_weak_keys)
+                let value = AmfValue::Dictionary(ObjectId::INVALID, dictionary_body, has_weak_keys);
+                // Dictionary is an AMF3-only type; embed via 0x11 in AMF0 mode.
+                if amf_version == AMFVersion::AMF0 {
+                    AmfValue::AMF3(Rc::new(value))
+                } else {
+                    value
+                }
             } else {
                 let class = o.instance_class();
                 let name = class_to_alias(activation, class);
