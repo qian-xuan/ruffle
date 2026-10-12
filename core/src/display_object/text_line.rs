@@ -184,30 +184,6 @@ impl<'gc> TextLine<'gc> {
         self.0.fallback.text().contains(b'\t')
     }
 
-    /// Returns the laid-out line's `(ascent, descent)`.
-    pub fn metrics(self) -> (f64, f64) {
-        let layout = self.0.fallback.layout();
-        let Some(line) = layout.lines().first() else {
-            debug_assert!(false, "Should not be reachable");
-            return Default::default();
-        };
-
-        (line.ascent().to_pixels(), line.descent().to_pixels())
-    }
-
-    /// Offset translating the fallback `EditText` (whose origin is its
-    /// top-left corner, inset by the gutter) so that the TextLine's origin
-    /// is the text baseline, matching Flash Player's convention.
-    fn fallback_offset(self) -> (Twips, Twips) {
-        let gutter = Twips::new(40); // 2px
-        let layout = self.0.fallback.layout();
-        let ascent = layout
-            .lines()
-            .first()
-            .map_or(Twips::new(0), |l| l.ascent());
-        (-gutter, -(gutter + ascent))
-    }
-
     pub fn fallback(self) -> EditText<'gc> {
         self.0.fallback
     }
@@ -227,7 +203,7 @@ impl<'gc> TextLine<'gc> {
     /// Uses the **cell** ascent (where the backing field renders the glyphs),
     /// not the typographic ascent reported to ActionScript.
     fn fallback_offset(self) -> (Twips, Twips) {
-        let gutter = EditText::GUTTER;
+        let gutter = Twips::new(40); // EditText::GUTTER = 2px
         let ascent = self.0.metrics.get().fallback_ascent;
         (-gutter, -(gutter + ascent))
     }
