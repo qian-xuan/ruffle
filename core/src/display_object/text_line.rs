@@ -19,6 +19,7 @@ use gc_arena::barrier::unlock;
 use gc_arena::lock::Lock;
 use gc_arena::{Collect, Gc, Mutation};
 use ruffle_common::utils::HasPrefixField;
+use ruffle_render::transform::Transform;
 use std::cell::Cell;
 use swf::Twips;
 
@@ -167,6 +168,19 @@ impl<'gc> TextLine<'gc> {
         (line.ascent().to_pixels(), line.descent().to_pixels())
     }
 
+    /// Offset translating the fallback `EditText` (whose origin is its
+    /// top-left corner, inset by the gutter) so that the TextLine's origin
+    /// is the text baseline, matching Flash Player's convention.
+    fn fallback_offset(self) -> (Twips, Twips) {
+        let gutter = Twips::new(40); // 2px
+        let layout = self.0.fallback.layout();
+        let ascent = layout
+            .lines()
+            .first()
+            .map_or(Twips::new(0), |l| l.ascent());
+        (-gutter, -(gutter + ascent))
+    }
+
     pub fn fallback(self) -> EditText<'gc> {
         self.0.fallback
     }
@@ -290,7 +304,13 @@ impl<'gc> TDisplayObject<'gc> for TextLine<'gc> {
     fn replace_with(self, _context: &mut UpdateContext<'gc>, _id: CharacterId) {}
 
     fn render_self(self, context: &mut RenderContext<'_, 'gc>) {
+        let (dx, dy) = self.fallback_offset();
+        context.transform_stack.push(&Transform {
+            matrix: Matrix::translate(dx, dy),
+            ..Default::default()
+        });
         self.0.fallback.render_self(context);
+        context.transform_stack.pop();
     }
 
     fn self_bounds(self, mode: BoundsMode) -> Rectangle<Twips> {
