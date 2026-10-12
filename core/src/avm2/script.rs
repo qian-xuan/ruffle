@@ -603,6 +603,12 @@ impl<'gc> Script<'gc> {
         for newtrait in &traits {
             if let TraitKind::Class { class, .. } = newtrait.kind() {
                 domain.export_class(newtrait.name(), *class, mc);
+                // Transfer the class-level metadata (e.g. [RemoteClass]) from
+                // the defining trait onto the Class object itself, so that
+                // `describeTypeJSON` can report it.
+                if let Some(metadata) = newtrait.metadata() {
+                    class.set_metadata(&mc, metadata);
+                }
             }
         }
 

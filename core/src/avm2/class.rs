@@ -10,6 +10,7 @@ use crate::avm2::error::{
     make_error_1103, make_error_1107, make_error_1110, make_error_1111,
 };
 use crate::avm2::function::FunctionArgs;
+use crate::avm2::metadata::Metadata;
 use crate::avm2::method::{Method, MethodAssociation, NativeMethodImpl};
 use crate::avm2::object::{ClassObject, Object, scriptobject_allocator};
 use crate::avm2::script::TranslationUnit;
@@ -148,6 +149,10 @@ pub struct ClassData<'gc> {
     /// properties that would match.
     traits: OnceLock<Box<[Trait<'gc>]>>,
 
+    /// Class-level metadata (e.g. `[RemoteClass]`, `[Event]`), attached to the
+    /// `TraitKind::Class` trait in the script's global traits.
+    metadata: OnceLock<Box<[Metadata<'gc>]>>,
+
     /// The class' vtable.
     vtable: OnceLock<VTable<'gc>>,
 
@@ -228,6 +233,7 @@ impl<'gc> ClassData<'gc> {
             instance_allocator: Allocator(scriptobject_allocator),
             instance_init: None,
             traits: OnceLock::new(),
+            metadata: OnceLock::new(),
             vtable: OnceLock::new(),
             call_handler: None,
             custom_constructor: None,
@@ -1050,6 +1056,18 @@ impl<'gc> Class<'gc> {
     /// Return traits provided by this class.
     pub fn traits(&self) -> &[Trait<'gc>] {
         self.0.traits.get().expect("Traits not yet initialized!")
+    }
+
+    /// Return the class-level metadata attached to this class's defining
+    /// `TraitKind::Class` trait (e.g. `[RemoteClass]`, `[Event]`).
+    pub fn metadata(&self) -> Option<&[Metadata<'gc>]> {
+        self.0.metadata.get().map(|m| m.as_ref())
+    }
+
+    /// Set the class-level metadata. Called once when the defining
+    /// `TraitKind::Class` trait is processed.
+    pub fn set_metadata(self, mc: &Mutation<'gc>, metadata: Box<[Metadata<'gc>]>) {
+        let _ = unlock!(Gc::write(mc, self.0), ClassData, metadata).set(metadata);
     }
 
     /// Get this class's instance allocator.
