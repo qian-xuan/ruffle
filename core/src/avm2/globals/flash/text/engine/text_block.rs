@@ -8,7 +8,7 @@ use crate::avm2::object::{ContentElementObject, ElementData, VectorObject};
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
 use crate::display_object::{DisplayObject, EditText, TDisplayObject, TextLine};
-use crate::fte::{TextBaselineValue, TextLineCreationResultValue, TextLineValidity, TextRotationValue};
+use crate::fte::{TextBaselineValue, TextLineCreationResultValue, TextRotationValue};
 use crate::html::{FormatSpans, TextFormat, TextSpan};
 use crate::string::{WStr, WString};
 use crate::{avm2_stub_getter, avm2_stub_setter};
@@ -511,20 +511,7 @@ pub fn do_create_text_line<'gc>(
 
     let subtext = &text[previous_position..next_position];
 
-    // Strip trailing newline characters from the display text — Flash Player
-    // does not render the paragraph terminator, but it still counts toward
-    // rawTextLength.
-    let mut display_len = subtext.len();
-    while display_len > 0
-        && subtext
-            .get(display_len - 1)
-            .map_or(false, |ch| matches!(ch, 0x0A | 0x0D | 0x2028 | 0x2029))
-    {
-        display_len -= 1;
-    }
-    let display_text = &subtext[..display_len];
-
-    fallback.set_text(display_text, activation.context);
+    fallback.set_text(subtext, activation.context);
 
     let format = spans
         .span(0)
@@ -537,7 +524,6 @@ pub fn do_create_text_line<'gc>(
     // of the provided text, and set the width of the EditText to that.
     // Some games depend on this (e.g. Realm Grinder).
 
-    text_line.set_validity(TextLineValidity::Valid, activation.gc());
     text_line.set_text_block(Some(block), activation.gc());
     text_line.set_specified_width(width);
     text_line.set_raw_text_length(subtext.len() as u32);
@@ -657,10 +643,10 @@ fn apply_format<'gc>(
     activation: &mut Activation<'_, 'gc>,
     edit_text: EditText<'gc>,
     format: TextFormat,
-    _line_index: u32,
+    line_index: u32,
 ) {
-    // TODO: Properly detect device vs embedded from FontDescription.fontLookup
-    edit_text.set_is_device_font(activation.context, true);
+    // TODO: Handle device font/non-device font properly
+    edit_text.set_is_device_font(activation.context, false);
     edit_text.set_text_format(
         0,
         edit_text.text_length(),
@@ -669,11 +655,10 @@ fn apply_format<'gc>(
     );
     edit_text.set_new_text_format(format);
 
-    edit_text.set_word_wrap(false, activation.context);
+    edit_text.set_word_wrap(true, activation.context);
 
     let measured_text = edit_text.measure_text(activation.context);
-    let gutter = 2.0; // EditText::GUTTER = Twips::new(40) = 2px
 
-    edit_text.set_width(activation.context, measured_text.0.to_pixels() + gutter * 2.0);
-    edit_text.set_height(activation.context, measured_text.1.to_pixels() + gutter * 2.0);
+    edit_text.set_height(activation.context, measured_text.1.to_pixels());
+    edit_text.set_y(measured_text.1 * line_index as i32);
 }
