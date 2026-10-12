@@ -8,7 +8,6 @@ use crate::avm2::globals::slots::flash_text_engine_text_justifier as justifier_s
 use crate::avm2::object::{ContentElementObject, ElementData, TObject, VectorObject};
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
-use crate::avm2_stub_setter;
 use crate::display_object::{DisplayObject, EditText, LineMetrics, TDisplayObject, TextLine};
 use crate::font::FontType;
 use crate::fte::{
@@ -36,13 +35,6 @@ pub fn set_apply_non_linear_font_scaling<'gc>(
     args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     let this = this.as_object().unwrap().as_text_block_object().unwrap();
-
-    avm2_stub_setter!(
-        activation,
-        "flash.text.engine.TextBlock",
-        "applyNonLinearFontScaling"
-    );
-
     this.set_apply_non_linear_font_scaling(args.get_bool(0));
 
     Ok(Value::Undefined)
@@ -66,13 +58,6 @@ pub fn set_baseline_font_description<'gc>(
     args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     let this = this.as_object().unwrap().as_text_block_object().unwrap();
-
-    avm2_stub_setter!(
-        activation,
-        "flash.text.engine.TextBlock",
-        "baselineFontDescription"
-    );
-
     let value = args
         .try_get_object(0)
         .map(|v| v.as_font_description_object().unwrap());
@@ -101,13 +86,6 @@ pub fn set_baseline_font_size<'gc>(
     if value < 0.0 {
         return Err(make_error_2004(activation, Error2004Type::ArgumentError));
     }
-
-    avm2_stub_setter!(
-        activation,
-        "flash.text.engine.TextBlock",
-        "baselineFontSize"
-    );
-
     this.set_baseline_font_size(value);
 
     Ok(Value::Undefined)
@@ -134,8 +112,6 @@ pub fn set_baseline_zero<'gc>(
         .filter(|v| !matches!(v, TextBaselineValue::UseDominantBaseline))
         .ok_or_else(|| make_error_2008(activation, "baselineZero"))?;
 
-    avm2_stub_setter!(activation, "flash.text.engine.TextBlock", "baselineZero");
-
     this.set_baseline_zero(value);
 
     Ok(Value::Undefined)
@@ -160,8 +136,6 @@ pub fn set_bidi_level<'gc>(
     if value < 0 {
         return Err(make_error_2004(activation, Error2004Type::ArgumentError));
     }
-
-    avm2_stub_setter!(activation, "flash.text.engine.TextBlock", "bidiLevel");
 
     // As with assigning `content`, changing the bidi level invalidates the
     // previously broken lines.
@@ -195,8 +169,6 @@ pub fn set_line_rotation<'gc>(
         .filter(|v| !matches!(v, TextRotationValue::Auto))
         .ok_or_else(|| make_error_2008(activation, "lineRotation"))?;
 
-    avm2_stub_setter!(activation, "flash.text.engine.TextBlock", "lineRotation");
-
     this.set_line_rotation(value);
 
     Ok(Value::Undefined)
@@ -225,8 +197,6 @@ pub fn set_tab_stops<'gc>(
         .and_then(|v| v.as_vector_object())
         .map(|v| VectorObject::from_vector(v.storage().clone(), activation));
 
-    avm2_stub_setter!(activation, "flash.text.engine.TextBlock", "tabStops");
-
     this.set_tab_stops(tab_stops, activation.gc());
 
     Ok(Value::Undefined)
@@ -252,8 +222,6 @@ pub fn set_text_justifier<'gc>(
     let this = this.as_object().unwrap().as_text_block_object().unwrap();
 
     let justifier = args.get_object(activation, 0, "textJustifier")?;
-
-    avm2_stub_setter!(activation, "flash.text.engine.TextBlock", "textJustifier");
 
     this.set_text_justifier(justifier, activation.gc());
 

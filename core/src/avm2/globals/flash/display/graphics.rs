@@ -1016,15 +1016,6 @@ pub fn draw_path<'gc>(
         .parse()
         .map_err(|_| make_error_2008(activation, "winding"))?;
 
-    // FIXME - implement fill behavior described in the Flash docs
-    // (which is different from just running each command sequentially on `Graphics`)
-    avm2_stub_method!(
-        activation,
-        "flash.display.Graphics",
-        "drawPath",
-        "fill behavior"
-    );
-
     let commands = commands
         .as_vector_storage()
         .expect("commands is not a Vector");
