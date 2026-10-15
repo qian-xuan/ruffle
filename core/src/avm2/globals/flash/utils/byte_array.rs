@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::avm2::Avm2StrRepresentable;
 use crate::avm2::Error;
 use crate::avm2::activation::Activation;
+use crate::avm2::amf::deserialize_externalizable;
 use crate::avm2::bytearray::{CompressionAlgorithm, Endian, ObjectEncoding};
 use crate::avm2::error::{make_error_2008, make_error_2058};
 use crate::avm2::function::FunctionArgs;
@@ -13,7 +14,7 @@ use crate::string::AvmString;
 use encoding_rs::{Encoding, UTF_8, UTF_16BE, UTF_16LE};
 use flash_lso::amf0::read::AMF0Decoder;
 use flash_lso::amf3::read::AMF3Decoder;
-use flash_lso::types::{AMFVersion, Element};
+use flash_lso::types::{AMFVersion, Attribute, Element, Value as AmfValue};
 use ruffle_macros::istr;
 use ruffle_wstr::WString;
 
@@ -791,34 +792,54 @@ pub fn read_object<'gc>(
     let this = this.as_object().unwrap();
 
     if let Some(bytearray) = this.as_bytearray() {
+        let position = bytearray.position();
         let bytes = bytearray
-            .read_at(bytearray.bytes_available(), bytearray.position())
+            .read_at(bytearray.bytes_available(), position)
             .map_err(|e| e.to_avm(activation))?;
 
-        let (bytes_left, value) = match bytearray.object_encoding() {
+        let (extra, amf) = match bytearray.object_encoding() {
             ObjectEncoding::Amf0 => {
                 let mut decoder = AMF0Decoder::default();
-                let (extra, amf) = decoder
+                decoder
                     .parse_single_element(bytes)
-                    .map_err(|_| "Error: Invalid object")?;
-                (
-                    extra.len(),
-                    crate::avm2::amf::deserialize_value(activation, &amf)?,
-                )
+                    .map_err(|_| "Error: Invalid object")?
             }
             ObjectEncoding::Amf3 => {
                 let mut decoder = AMF3Decoder::default();
-                let (extra, amf) = decoder
+                decoder
                     .parse_single_element(bytes)
-                    .map_err(|_| "Error: Invalid object")?;
-                (
-                    extra.len(),
-                    crate::avm2::amf::deserialize_value(activation, &amf)?,
-                )
+                    .map_err(|_| "Error: Invalid object")?
             }
         };
 
-        bytearray.set_position(bytearray.len() - bytes_left);
+        // Externalizable objects: flash_lso preserves the raw body bytes
+        // as a single ByteArray element in the Object, and does not
+        // consume the body (extra points at the body start). Ruffle calls
+        // readExternal directly and tracks position from the inner
+        // ByteArray's position after readExternal returns.
+        if let AmfValue::Object(_, elements, Some(class)) = &*amf {
+            if class.attributes.contains(Attribute::External) {
+                let body_bytes = elements
+                    .first()
+                    .and_then(|e| {
+                        let val: &AmfValue = e.value();
+                        match val {
+                            AmfValue::ByteArray(b) => Some(b.as_slice()),
+                            _ => None,
+                        }
+                    })
+                    .unwrap_or(&[]);
+                let (value, consumed) =
+                    deserialize_externalizable(activation, &class.name, body_bytes)?;
+                let header_size = bytes.len() - extra.len();
+                bytearray.set_position(position + header_size + consumed);
+                return Ok(value);
+            }
+        }
+
+        // Normal path
+        let value = crate::avm2::amf::deserialize_value(activation, &amf)?;
+        bytearray.set_position(bytearray.len() - extra.len());
         return Ok(value);
     }
 
