@@ -818,12 +818,6 @@ pub fn read_object<'gc>(
                     decoder.object_id = state.object_id;
                 }
                 let parse_result = decoder.parse_single_element(bytes);
-                if let Err(ref _e) = parse_result {
-                    tracing::debug!(
-                        "read_object AMF3 parse failed: pos={}, shared={}, remaining={}",
-                        position, was_shared, bytes.len()
-                    );
-                }
                 // Save updated state back so the next readObject inherits it
                 if was_shared {
                     bytearray.set_amf3_decoder_state(Amf3DecoderState {
