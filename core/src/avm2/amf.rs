@@ -4,11 +4,13 @@ use std::rc::Rc;
 use super::property::Property;
 use crate::avm2::ArrayObject;
 use crate::avm2::ArrayStorage;
-use crate::avm2::bytearray::ByteArrayStorage;
+use crate::avm2::bytearray::{ByteArrayStorage, ObjectEncoding};
 use crate::avm2::class::Class;
+use crate::avm2::error::make_error_2173;
 use crate::avm2::object::{ByteArrayObject, ClassObject, ScriptObject, TObject, VectorObject};
 use crate::avm2::vector::VectorStorage;
-use crate::avm2::{Activation, Error, Object, Value};
+use crate::avm2::{Activation, Error, FunctionArgs, Multiname, Namespace, Object, Value};
+use crate::avm2::api_version::ApiVersion;
 use crate::avm2_stub_method;
 use crate::string::AvmString;
 use enumset::EnumSet;
@@ -214,6 +216,70 @@ fn class_to_alias<'gc>(activation: &mut Activation<'_, 'gc>, class: Class<'gc>) 
     }
 }
 
+/// Deserialize an externalizable AMF3 object by invoking `readExternal`
+/// on the target AS3 class instance.
+///
+/// Returns the deserialized object and the number of bytes consumed from
+/// `body_bytes` (determined by the ByteArray position after readExternal).
+pub fn deserialize_externalizable<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    class_name: &str,
+    body_bytes: &[u8],
+) -> Result<(Value<'gc>, usize), Error<'gc>> {
+    // 1. Resolve the AS3 class from its registered alias.
+    let name = AvmString::new_utf8(activation.gc(), class_name);
+    let target_class = alias_to_class(activation, name)?;
+    let target_class_def = target_class.inner_class_definition();
+
+    // 2. Verify the class implements IExternalizable.
+    //    Looked up by name from the player globals domain, since
+    //    interfaces can't be registered via get_defined_value at init time.
+    let iext_ns = Namespace::package(
+        AvmString::new_utf8(activation.gc(), "flash.utils"),
+        ApiVersion::VM_INTERNAL,
+        activation.strings(),
+    );
+    let iext_name = Multiname::new(
+        iext_ns,
+        AvmString::new_utf8(activation.gc(), "IExternalizable"),
+    );
+    let iext_class = activation
+        .avm2()
+        .playerglobals_domain()
+        .get_class(activation.context, &iext_name);
+    let implements_iext = match iext_class {
+        Some(iext) => target_class_def
+            .all_interfaces()
+            .iter()
+            .any(|iface| *iface == iext),
+        None => false,
+    };
+    if !implements_iext {
+        return Err(make_error_2173(activation, class_name));
+    }
+
+    // 3. Instantiate the class (same pattern as the normal Object path).
+    let obj = target_class.construct(activation, &[])?;
+
+    // 4. Wrap the raw body bytes in a ByteArray with AMF3 encoding,
+    //    so readExternal can call readObject/readInt/etc.
+    let mut storage = ByteArrayStorage::from_vec(activation.context, body_bytes.to_vec());
+    storage.set_object_encoding(ObjectEncoding::Amf3);
+    let ba = ByteArrayObject::from_storage(activation.context, storage);
+
+    // 5. Invoke readExternal(input) — AVM2 executes the SWF's AS3 code.
+    obj.call_public_property(
+        AvmString::new_utf8(activation.gc(), "readExternal"),
+        FunctionArgs::from_slice(&[ba.into()]),
+        activation,
+    )?;
+
+    // 6. Determine how many bytes readExternal consumed.
+    let consumed = ba.storage().position();
+
+    Ok((obj, consumed))
+}
+
 /// Serialize an Object and any children to a AMF object
 pub fn recursive_serialize<'gc>(
     activation: &mut Activation<'_, 'gc>,
@@ -397,6 +463,31 @@ pub fn deserialize_value_impl<'gc>(
             array.into()
         }
         AmfValue::Object(id, elements, class) => {
+            // Check for externalizable objects — flash_lso preserves the
+            // raw body bytes as a single ByteArray element when no Rust
+            // decoder is registered. Ruffle delegates to the AS3 class's
+            // readExternal method, matching Flash Player's behavior.
+            if let Some(class) = class {
+                if class.attributes.contains(Attribute::External) {
+                    let body_bytes = elements
+                        .first()
+                        .and_then(|e| {
+                            let val: &AmfValue = e.value();
+                            match val {
+                                AmfValue::ByteArray(b) => Some(b.as_slice()),
+                                _ => None,
+                            }
+                        })
+                        .unwrap_or(&[]);
+                    let (obj, _consumed) =
+                        deserialize_externalizable(activation, &class.name, body_bytes)?;
+                    if let Value::Object(o) = obj {
+                        object_map.insert(*id, o);
+                    }
+                    return Ok(obj);
+                }
+            }
+
             let target_class = if let Some(class) = class {
                 let name = AvmString::new_utf8(activation.gc(), &class.name);
                 alias_to_class(activation, name)?
