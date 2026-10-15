@@ -6,10 +6,11 @@ use flate2::Compression;
 use flate2::read::*;
 use gc_arena::Collect;
 use ruffle_macros::Avm2Enum;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp;
 use std::io::prelude::*;
 use std::io::{self, SeekFrom};
+use std::rc::Rc;
 
 #[derive(Clone, Collect, Debug, Copy, PartialEq, Eq)]
 #[collect(no_drop)]
@@ -66,6 +67,22 @@ pub struct ByteArrayStorage {
 
     /// The encoding used when serializing/deserializing using readObject/writeObject
     object_encoding: ObjectEncoding,
+
+    /// Shared AMF3 decoder state for externalizable body parsing.
+    /// When present, readObject uses this state instead of creating a
+    /// fresh AMF3Decoder, allowing reference tables to be shared across
+    /// multiple readObject calls within a single readExternal invocation.
+    amf3_decoder_state: RefCell<Option<Amf3DecoderState>>,
+}
+
+/// Snapshot of AMF3Decoder reference tables, shared across readObject
+/// calls within a single externalizable body.
+#[derive(Clone, Debug)]
+pub struct Amf3DecoderState {
+    pub string_reference_table: Vec<Vec<u8>>,
+    pub trait_reference_table: Vec<flash_lso::types::ClassDefinition>,
+    pub object_reference_table: Vec<Rc<flash_lso::types::Value>>,
+    pub object_id: i64,
 }
 
 impl ByteArrayStorage {
@@ -76,6 +93,7 @@ impl ByteArrayStorage {
             position: Cell::new(0),
             endian: Endian::Big,
             object_encoding: context.avm2.default_bytearray_encoding,
+            amf3_decoder_state: RefCell::new(None),
         }
     }
 
@@ -86,6 +104,7 @@ impl ByteArrayStorage {
             position: Cell::new(0),
             endian: Endian::Big,
             object_encoding: context.avm2.default_bytearray_encoding,
+            amf3_decoder_state: RefCell::new(None),
         }
     }
 
@@ -369,6 +388,23 @@ impl ByteArrayStorage {
     #[inline]
     pub fn bytes_available(&self) -> usize {
         self.len().saturating_sub(self.position.get())
+    }
+
+    /// Take the shared AMF3 decoder state, if present.
+    /// Used by readObject to reuse reference tables across calls
+    /// within a single externalizable body.
+    pub fn take_amf3_decoder_state(&self) -> Option<Amf3DecoderState> {
+        self.amf3_decoder_state.borrow_mut().take()
+    }
+
+    /// Set the shared AMF3 decoder state.
+    pub fn set_amf3_decoder_state(&self, state: Amf3DecoderState) {
+        *self.amf3_decoder_state.borrow_mut() = Some(state);
+    }
+
+    /// Check whether shared AMF3 decoder state is present.
+    pub fn has_amf3_decoder_state(&self) -> bool {
+        self.amf3_decoder_state.borrow().is_some()
     }
 }
 
