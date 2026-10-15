@@ -818,11 +818,10 @@ pub fn read_object<'gc>(
                     decoder.object_id = state.object_id;
                 }
                 let parse_result = decoder.parse_single_element(bytes);
-                if let Err(ref e) = parse_result {
+                if let Err(ref _e) = parse_result {
                     tracing::debug!(
-                        "read_object AMF3 parse failed: error={:?}, pos={}, shared={}, first 20: {:02X?}",
-                        e, position, was_shared,
-                        &bytes[..bytes.len().min(20)]
+                        "read_object AMF3 parse failed: pos={}, shared={}, remaining={}",
+                        position, was_shared, bytes.len()
                     );
                 }
                 // Save updated state back so the next readObject inherits it
