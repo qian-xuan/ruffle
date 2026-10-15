@@ -4,7 +4,7 @@ use crate::avm2::Avm2StrRepresentable;
 use crate::avm2::Error;
 use crate::avm2::activation::Activation;
 use crate::avm2::amf::deserialize_externalizable;
-use crate::avm2::bytearray::{CompressionAlgorithm, Endian, ObjectEncoding};
+use crate::avm2::bytearray::{Amf3DecoderState, CompressionAlgorithm, Endian, ObjectEncoding};
 use crate::avm2::error::{make_error_2008, make_error_2058};
 use crate::avm2::function::FunctionArgs;
 use crate::avm2::object::Object;
@@ -805,10 +805,37 @@ pub fn read_object<'gc>(
                     .map_err(|_| "Error: Invalid object")?
             }
             ObjectEncoding::Amf3 => {
+                // When parsing an externalizable body, the ByteArray carries
+                // shared AMF3 decoder state so reference tables persist across
+                // multiple readObject calls within the same readExternal.
+                let shared_state = bytearray.take_amf3_decoder_state();
+                let was_shared = shared_state.is_some();
                 let mut decoder = AMF3Decoder::default();
-                decoder
-                    .parse_single_element(bytes)
-                    .map_err(|_| "Error: Invalid object")?
+                if let Some(state) = shared_state {
+                    decoder.string_reference_table = state.string_reference_table;
+                    decoder.trait_reference_table = state.trait_reference_table;
+                    decoder.object_reference_table = state.object_reference_table;
+                    decoder.object_id = state.object_id;
+                }
+                let parse_result = decoder.parse_single_element(bytes);
+                if let Err(ref e) = parse_result {
+                    tracing::debug!(
+                        "read_object AMF3 parse failed: error={:?}, pos={}, shared={}, first 20: {:02X?}",
+                        e, position, was_shared,
+                        &bytes[..bytes.len().min(20)]
+                    );
+                }
+                // Save updated state back so the next readObject inherits it
+                if was_shared {
+                    bytearray.set_amf3_decoder_state(Amf3DecoderState {
+                        string_reference_table: decoder.string_reference_table,
+                        trait_reference_table: decoder.trait_reference_table,
+                        object_reference_table: decoder.object_reference_table,
+                        object_id: decoder.object_id,
+                    });
+                }
+                let (extra, amf) = parse_result.map_err(|_| "Error: Invalid object")?;
+                (extra, amf)
             }
         };
 

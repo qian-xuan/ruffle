@@ -263,8 +263,29 @@ pub fn deserialize_externalizable<'gc>(
 
     // 4. Wrap the raw body bytes in a ByteArray with AMF3 encoding,
     //    so readExternal can call readObject/readInt/etc.
+    //    Initialize shared AMF3 decoder state from the outer stream's
+    //    reference tables (saved by flash_lso in a thread-local when the
+    //    externalizable branch was hit). This lets readObject calls within
+    //    readExternal resolve references to strings/objects from the
+    //    outer AMF3 stream.
     let mut storage = ByteArrayStorage::from_vec(activation.context, body_bytes.to_vec());
     storage.set_object_encoding(ObjectEncoding::Amf3);
+    let outer_state = flash_lso::amf3::read::EXTERNALIZABLE_STATE
+        .with(|s| s.borrow_mut().take());
+    storage.set_amf3_decoder_state(match outer_state {
+        Some(state) => crate::avm2::bytearray::Amf3DecoderState {
+            string_reference_table: state.string_reference_table,
+            trait_reference_table: state.trait_reference_table,
+            object_reference_table: state.object_reference_table,
+            object_id: state.object_id,
+        },
+        None => crate::avm2::bytearray::Amf3DecoderState {
+            string_reference_table: Vec::new(),
+            trait_reference_table: Vec::new(),
+            object_reference_table: Vec::new(),
+            object_id: 0,
+        },
+    });
     let ba = ByteArrayObject::from_storage(activation.context, storage);
 
     // 5. Invoke readExternal(input) — AVM2 executes the SWF's AS3 code.
