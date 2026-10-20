@@ -805,38 +805,125 @@ pub fn read_object<'gc>(
                     .map_err(|_| "Error: Invalid object")?
             }
             ObjectEncoding::Amf3 => {
-                // When parsing an externalizable body, the ByteArray carries
-                // shared AMF3 decoder state so reference tables persist across
-                // multiple readObject calls within the same readExternal.
+                // Shared AMF3 decoder state for readExternal's readObject calls.
                 let shared_state = bytearray.take_amf3_decoder_state();
                 let was_shared = shared_state.is_some();
                 let mut decoder = AMF3Decoder::default();
+                decoder.pause_for_externalizable = true;
                 if let Some(state) = shared_state {
                     decoder.string_reference_table = state.string_reference_table;
                     decoder.trait_reference_table = state.trait_reference_table;
                     decoder.object_reference_table = state.object_reference_table;
                     decoder.object_id = state.object_id;
                 }
-                let parse_result = decoder.parse_single_element(bytes);
-                // Save updated state back so the next readObject inherits it
-                if was_shared {
-                    bytearray.set_amf3_decoder_state(Amf3DecoderState {
-                        string_reference_table: decoder.string_reference_table,
-                        trait_reference_table: decoder.trait_reference_table,
-                        object_reference_table: decoder.object_reference_table,
-                        object_id: decoder.object_id,
-                    });
+
+                match decoder.parse_single_element(bytes) {
+                    Ok(result) => {
+                        // Normal completion (no nested externalizable)
+                        let (extra, amf) = result;
+                        if was_shared {
+                            bytearray.set_amf3_decoder_state(Amf3DecoderState {
+                                string_reference_table: decoder.string_reference_table,
+                                trait_reference_table: decoder.trait_reference_table,
+                                object_reference_table: decoder.object_reference_table,
+                                object_id: decoder.object_id,
+                            });
+                        }
+                        (extra, amf)
+                    }
+                    Err(_) if decoder.pause_state.is_some() => {
+                        // Pause: a nested externalizable was encountered.
+                        // Ruffle calls readExternal (has Activation directly),
+                        // then continue_parse to resume.
+                        let pause = decoder.pause_state.as_ref().unwrap();
+                        let class_name = pause.class_name.clone();
+                        let body_bytes = pause.body_bytes.clone();
+                        let ext_object_id = pause.ext_object_id;
+
+                        // Seed EXTERNALIZABLE_STATE with the decoder's current
+                        // state before calling deserialize_externalizable. The
+                        // outer deserialize_externalizable already took (emptied)
+                        // the thread_local; without re-seeding, the nested
+                        // externalizable gets an empty state (object_id=0),
+                        // causing oid collisions across readObjects.
+                        flash_lso::amf3::read::EXTERNALIZABLE_STATE.with(|s| {
+                            *s.borrow_mut() = Some(
+                                flash_lso::amf3::read::ExternalizableState {
+                                    string_reference_table: decoder.string_reference_table.clone(),
+                                    trait_reference_table: decoder.trait_reference_table.clone(),
+                                    object_reference_table: decoder.object_reference_table.clone(),
+                                    object_id: decoder.object_id,
+                                },
+                            );
+                        });
+
+                        // Call readExternal (first call — determines body size).
+                        // KEEP the constructed object to reuse it during the
+                        // deserialize_value tree walk below, avoiding a second
+                        // readExternal that would pollute the shared AMF3
+                        // reference table.
+                        let (ext_obj, consumed, updated_state) =
+                            deserialize_externalizable(
+                                activation, &class_name, &body_bytes,
+                            )?;
+
+                        // Sync readExternal's reference table updates to decoder
+                        if let Some(state) = updated_state {
+                            decoder.string_reference_table = state.string_reference_table.clone();
+                            decoder.trait_reference_table = state.trait_reference_table.clone();
+                            decoder.object_reference_table = state.object_reference_table.clone();
+                            decoder.object_id = state.object_id;
+                        }
+
+                        // Resume parsing (cursor advances past externalizable body)
+                        let (extra, amf) = decoder
+                            .continue_parse(consumed, &body_bytes[consumed..])
+                            .map_err(|_| "Error: Invalid object")?;
+
+                        // Re-set thread_local for the second readExternal
+                        // (called by deserialize_value_impl below)
+                        flash_lso::amf3::read::EXTERNALIZABLE_STATE.with(|s| {
+                            *s.borrow_mut() = Some(
+                                flash_lso::amf3::read::ExternalizableState {
+                                    string_reference_table: decoder.string_reference_table.clone(),
+                                    trait_reference_table: decoder.trait_reference_table.clone(),
+                                    object_reference_table: decoder.object_reference_table.clone(),
+                                    object_id: decoder.object_id,
+                                },
+                            );
+                        });
+
+                        // Save decoder state to ByteArray (for shared state)
+                        if was_shared {
+                            bytearray.set_amf3_decoder_state(Amf3DecoderState {
+                                string_reference_table: decoder.string_reference_table,
+                                trait_reference_table: decoder.trait_reference_table,
+                                object_reference_table: decoder.object_reference_table,
+                                object_id: decoder.object_id,
+                            });
+                        }
+
+                        // Deserialize and set position HERE (body_bytes is local).
+                        // Seed the object map with the body-size readExternal's
+                        // constructed object so the externalizable branch in
+                        // deserialize_value_impl reuses it instead of re-running
+                        // readExternal.
+                        let mut cache = std::collections::BTreeMap::new();
+                        if let Value::Object(o) = ext_obj {
+                            cache.insert(ext_object_id, o);
+                        }
+                        let value = crate::avm2::amf::deserialize_value_with_cache(activation, &amf, cache)?;
+                        bytearray.set_position(position + (bytes.len() - extra.len()));
+                        return Ok(value);
+                    }
+                    Err(_) => {
+                        return Err("Error: Invalid object".into());
+                    }
                 }
-                let (extra, amf) = parse_result.map_err(|_| "Error: Invalid object")?;
-                (extra, amf)
             }
         };
 
-        // Externalizable objects: flash_lso preserves the raw body bytes
-        // as a single ByteArray element in the Object, and does not
-        // consume the body (extra points at the body start). Ruffle calls
-        // readExternal directly and tracks position from the inner
-        // ByteArray's position after readExternal returns.
+        // Check for top-level externalizable (normal mode from packet parser)
         if let AmfValue::Object(_, elements, Some(class)) = &*amf {
             if class.attributes.contains(Attribute::External) {
                 let body_bytes = elements
@@ -849,7 +936,7 @@ pub fn read_object<'gc>(
                         }
                     })
                     .unwrap_or(&[]);
-                let (value, consumed) =
+                let (value, consumed, _updated_state) =
                     deserialize_externalizable(activation, &class.name, body_bytes)?;
                 let header_size = bytes.len() - extra.len();
                 bytearray.set_position(position + header_size + consumed);
@@ -857,7 +944,7 @@ pub fn read_object<'gc>(
             }
         }
 
-        // Normal path
+        // Normal path: deserialize and set position
         let value = crate::avm2::amf::deserialize_value(activation, &amf)?;
         bytearray.set_position(bytearray.len() - extra.len());
         return Ok(value);

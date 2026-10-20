@@ -225,7 +225,7 @@ pub fn deserialize_externalizable<'gc>(
     activation: &mut Activation<'_, 'gc>,
     class_name: &str,
     body_bytes: &[u8],
-) -> Result<(Value<'gc>, usize), Error<'gc>> {
+) -> Result<(Value<'gc>, usize, Option<crate::avm2::bytearray::Amf3DecoderState>), Error<'gc>> {
     // 1. Resolve the AS3 class from its registered alias.
     let name = AvmString::new_utf8(activation.gc(), class_name);
     let target_class = alias_to_class(activation, name)?;
@@ -298,7 +298,10 @@ pub fn deserialize_externalizable<'gc>(
     // 6. Determine how many bytes readExternal consumed.
     let consumed = ba.storage().position();
 
-    Ok((obj, consumed))
+    // 7. Extract updated shared state (readObject calls may have added entries).
+    let updated_state = ba.storage().take_amf3_decoder_state();
+
+    Ok((obj, consumed, updated_state))
 }
 
 /// Serialize an Object and any children to a AMF object
@@ -417,6 +420,21 @@ pub fn deserialize_value<'gc>(
     deserialize_value_impl(activation, val, &mut x)
 }
 
+/// Deserialize an AMF value, seeding the object map with pre-built objects.
+///
+/// Used by `read_object`'s pause branch to reuse the body-size readExternal's
+/// constructed externalizable object, so the externalizable branch in
+/// `deserialize_value_impl` skips re-running readExternal (which would pollute
+/// the shared AMF3 reference table and waste work).
+pub fn deserialize_value_with_cache<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    val: &AmfValue,
+    cache: BTreeMap<ObjectId, Object<'gc>>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let mut x = cache;
+    deserialize_value_impl(activation, val, &mut x)
+}
+
 pub fn deserialize_value_impl<'gc>(
     activation: &mut Activation<'_, 'gc>,
     val: &AmfValue,
@@ -490,6 +508,13 @@ pub fn deserialize_value_impl<'gc>(
             // readExternal method, matching Flash Player's behavior.
             if let Some(class) = class {
                 if class.attributes.contains(Attribute::External) {
+                    // Reuse a pre-built object stashed by `read_object`'s pause
+                    // branch (the body-size readExternal call) instead of
+                    // re-running readExternal here. Re-running would pollute the
+                    // shared AMF3 reference table and waste work.
+                    if let Some(o) = object_map.get(id) {
+                        return Ok(Value::Object(*o));
+                    }
                     let body_bytes = elements
                         .first()
                         .and_then(|e| {
@@ -500,7 +525,7 @@ pub fn deserialize_value_impl<'gc>(
                             }
                         })
                         .unwrap_or(&[]);
-                    let (obj, _consumed) =
+                    let (obj, _consumed, _updated_state) =
                         deserialize_externalizable(activation, &class.name, body_bytes)?;
                     if let Value::Object(o) = obj {
                         object_map.insert(*id, o);
