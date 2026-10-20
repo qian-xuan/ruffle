@@ -112,14 +112,14 @@ impl ByteArrayStorage {
     #[inline]
     pub fn write_bytes(&mut self, buf: &[u8]) -> Result<(), ByteArrayError> {
         self.write_at(buf, self.position.get())?;
-        self.position.set(self.position.get() + buf.len());
+        self.set_position(self.position.get() + buf.len());
         Ok(())
     }
 
     #[inline]
     pub fn write_bytes_within(&mut self, start: usize, amnt: usize) -> Result<(), ByteArrayError> {
         self.write_at_within(start, amnt, self.position.get())?;
-        self.position.set(self.position.get() + amnt);
+        self.set_position(self.position.get() + amnt);
         Ok(())
     }
 
@@ -127,7 +127,7 @@ impl ByteArrayStorage {
     #[inline]
     pub fn read_bytes(&self, amnt: usize) -> Result<&[u8], ByteArrayError> {
         let bytes = self.read_at(amnt, self.position.get())?;
-        self.position.set(self.position.get() + amnt);
+        self.set_position(self.position.get() + amnt);
         Ok(bytes)
     }
 
@@ -296,7 +296,7 @@ impl ByteArrayStorage {
     #[inline]
     pub fn clear(&mut self) {
         self.bytes.clear();
-        self.position.set(0)
+        self.set_position(0)
     }
 
     #[inline]
@@ -307,7 +307,7 @@ impl ByteArrayStorage {
     #[inline]
     pub fn set_length(&mut self, new_len: usize) {
         self.bytes.resize(new_len, 0);
-        self.position.set(self.position().min(new_len));
+        self.set_position(self.position().min(new_len));
     }
 
     pub fn get(&self, pos: usize) -> Option<u8> {
@@ -325,7 +325,7 @@ impl ByteArrayStorage {
     /// Swap all data stored in this bytearray with the passed `Vec<u8>`. This
     /// method sets the bytearray's `position` to 0.
     pub fn swap_storage_with(&mut self, new_data: &mut Vec<u8>) {
-        self.position.set(0);
+        self.set_position(0);
         std::mem::swap(&mut self.bytes, new_data);
     }
 
@@ -435,7 +435,7 @@ impl Seek for ByteArrayStorage {
     fn seek(&mut self, style: SeekFrom) -> io::Result<u64> {
         let (base_pos, offset) = match style {
             SeekFrom::Start(n) => {
-                self.position.set(n as usize);
+                self.set_position(n as usize);
                 return Ok(n);
             }
             SeekFrom::End(n) => (self.len(), n),
@@ -450,7 +450,7 @@ impl Seek for ByteArrayStorage {
 
         match new_pos {
             Some(n) => {
-                self.position.set(n);
+                self.set_position(n);
                 Ok(n as u64)
             }
             None => Err(io::Error::new(
