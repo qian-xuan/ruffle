@@ -1729,6 +1729,7 @@ checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
 [[package]]
 name = "flash-lso"
 version = "0.6.0"
+source = "git+https://github.com/qian-xuan/rust-flash-lso?branch=fix%2Famf3-response-parse#7d29c2340fd385eaab2c0374de617fa56d52785d"
 dependencies = [
  "enumset",
  "nom 8.0.0",
