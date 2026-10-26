@@ -119,6 +119,14 @@ pub trait UiBackend: Any {
         !self.clipboard_content().is_empty()
     }
 
+    /// Returns true if the clipboard content is only available asynchronously
+    /// via a `TextControl::Paste` event (e.g. web, where the browser fires a
+    /// separate `paste` event after `keydown`). Returns false (default) when
+    /// the clipboard can be read synchronously at keydown time (e.g. desktop).
+    fn clipboard_requires_paste_event(&self) -> bool {
+        false
+    }
+
     /// Sets the clipboard to the given content.
     fn set_clipboard_content(&mut self, content: String);
 

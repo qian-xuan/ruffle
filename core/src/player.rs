@@ -35,7 +35,9 @@ use crate::display_object::{
 };
 use crate::events::GamepadButton;
 use crate::events::PlayerNotification;
-use crate::events::{ButtonKeyCode, ClipEvent, ClipEventResult, KeyCode, MouseButton, PlayerEvent};
+use crate::events::{
+    ButtonKeyCode, ClipEvent, ClipEventResult, KeyCode, MouseButton, PlayerEvent, TextControlCode,
+};
 use crate::external::{ExternalInterface, ExternalInterfaceProvider, NullFsCommandProvider};
 use crate::external::{FsCommandProvider, Value as ExternalValue};
 use crate::focus_tracker::NavigationDirection;
@@ -1355,6 +1357,57 @@ impl Player {
                 }
                 if let InputEvent::Ime(ime) = &event {
                     text.ime(ime.clone(), context);
+                }
+            } else if !key_press_handled
+                && let InputEvent::TextInput { codepoint } = &event
+            {
+                // Non-TextField focus target (e.g., Spark RichEditableText).
+                // Flash Player dispatches TextEvent.TEXT_INPUT to the focus
+                // target, which framework-level text input handlers listen
+                // for. Ruffle only dispatched it for classic EditText; without
+                // this, Spark components never receive text input events.
+                if let Some(focus) = context.focus_tracker.get() {
+                    if let Some(target) = focus.as_displayobject().object2() {
+                        let mut activation = Avm2Activation::from_nothing(context);
+                        let text = AvmString::new_utf8(activation.gc(), &codepoint.to_string());
+                        let text_evt = Avm2EventObject::text_event(
+                            &mut activation,
+                            "textInput",
+                            text,
+                            true,
+                            true,
+                        );
+                        Avm2::dispatch_event(activation.context, text_evt, target.into());
+                    }
+                }
+            } else if !key_press_handled
+                && let InputEvent::TextControl { code: TextControlCode::Paste } = &event
+            {
+                // Web paste for non-TextField focus (e.g. Spark RichEditableText).
+                // The browser's `paste` event fires asynchronously after `keydown`,
+                // setting the clipboard content buffer and dispatching
+                // `TextControl::Paste`. Dispatch `TextEvent.TEXT_INPUT` with the
+                // clipboard content to the focus target.
+                if let Some(focus) = context.focus_tracker.get() {
+                    if let Some(target) = focus.as_displayobject().object2() {
+                        let content = context.ui.clipboard_content();
+                        if !content.is_empty() {
+                            let mut activation = Avm2Activation::from_nothing(context);
+                            let text = AvmString::new_utf8(activation.gc(), &content);
+                            let text_evt = Avm2EventObject::text_event(
+                                &mut activation,
+                                "textInput",
+                                text,
+                                true,
+                                true,
+                            );
+                            Avm2::dispatch_event(
+                                activation.context,
+                                text_evt,
+                                target.into(),
+                            );
+                        }
+                    }
                 }
             }
 
