@@ -28,18 +28,12 @@ package flash.desktop {
             stub_method("flash.desktop.Clipboard", "clearData");
         }
 
-        public function getData(
+        public native function getData(
             format:String,
             transferMode:String = ClipboardTransferMode.ORIGINAL_PREFERRED
-        ):Object {
-            stub_method("flash.desktop.Clipboard", "getData");
-            return null;
-        }
+        ):Object;
 
-        public function hasFormat(format:String):Boolean {
-            stub_method("flash.desktop.Clipboard", "hasFormat");
-            return false;
-        }
+        public native function hasFormat(format:String):Boolean;
 
         public function setData(format:String, data:Object, serializable:Boolean = true):Boolean {
             stub_method("flash.desktop.Clipboard", "setData");
