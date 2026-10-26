@@ -45,8 +45,8 @@ package flash.text.engine {
         }
 
         public function get unjustifiedTextWidth():Number {
-            stub_getter("flash.text.engine.TextLine", "unjustifiedTextWidth");
-            return this.specifiedWidth;
+            // TODO: Return the pre-justification width once justification is supported.
+            return this.textWidth;
         }
 
         public native function get textWidth():Number;
@@ -56,7 +56,7 @@ package flash.text.engine {
         public native function set validity(value:String):void;
 
         public function get hasGraphicElement():Boolean {
-            stub_getter("flash.text.engine.TextLine", "hasGraphicElement");
+            // TODO: Implement together with GraphicElement support.
             return false;
         }
 
@@ -69,8 +69,19 @@ package flash.text.engine {
         public native function get nextLine():TextLine;
 
         public function getBaselinePosition(baseline:String):Number {
-            stub_method("flash.text.engine.TextLine", "getBaselinePosition");
-            return 0.0;
+            if (baseline == null) {
+                throw new TypeError("Error #2007: Parameter baseline must be non-null.", 2007);
+            }
+
+            // Baseline positions are expressed in this line's coordinate
+            // space, whose origin is the roman baseline (adjusted by the
+            // block's baselineZero setting).
+            var zero:String = TextBaseline.ROMAN;
+            if (this.textBlock) {
+                zero = this.textBlock.baselineZero;
+            }
+
+            return this.baselineOffset(baseline) - this.baselineOffset(zero);
         }
 
         public native function get hasTabs():Boolean;
@@ -78,7 +89,6 @@ package flash.text.engine {
         public native function getAtomIndexAtPoint(stageX:Number, stageY:Number):int;
 
         public function getAtomIndexAtCharIndex(charIndex:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomIndexAtCharIndex");
             var index:int = charIndex - this.textBlockBeginIndex;
             if (index < 0 || index >= this.rawTextLength) {
                 return -1;
@@ -87,15 +97,16 @@ package flash.text.engine {
         }
 
         public function getAtomBidiLevel(index:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomBidiLevel");
+            this.checkAtomIndex(index);
+            // TODO: Implement together with bidi support.
             return 0;
         }
 
         public native function getAtomBounds(index:int):Rectangle;
 
         public function getAtomCenter(index:int):Number {
-            stub_method("flash.text.engine.TextLine", "getAtomCenter");
-            return 1.0;
+            var bounds:Rectangle = this.getAtomBounds(index);
+            return bounds.x + bounds.width / 2;
         }
 
         public function getAtomGraphic(index:int):DisplayObject {
@@ -104,13 +115,13 @@ package flash.text.engine {
         }
 
         public function getAtomTextBlockBeginIndex(index:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomTextBlockBeginIndex");
-            return 0;
+            this.checkAtomIndex(index);
+            return this.textBlockBeginIndex + index;
         }
 
         public function getAtomTextBlockEndIndex(index:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomTextBlockEndIndex");
-            return 0;
+            this.checkAtomIndex(index);
+            return this.textBlockBeginIndex + index + 1;
         }
 
         public function getAtomTextRotation(index:int):String {
@@ -119,6 +130,30 @@ package flash.text.engine {
         }
 
         public native function getAtomWordBoundaryOnLeft(index:int):Boolean;
+
+        internal function checkAtomIndex(index:int):void {
+            if (index < 0 || index >= this.atomCount) {
+                throw new RangeError("Error #2006: The supplied index is out of bounds.", 2006);
+            }
+        }
+
+        private function baselineOffset(baseline:String):Number {
+            // Offsets relative to the roman baseline, positive going down.
+            switch (baseline) {
+                case TextBaseline.ROMAN:
+                    return 0.0;
+                case TextBaseline.ASCENT:
+                case TextBaseline.IDEOGRAPHIC_TOP:
+                    return -this.ascent;
+                case TextBaseline.DESCENT:
+                case TextBaseline.IDEOGRAPHIC_BOTTOM:
+                    return this.descent;
+                case TextBaseline.IDEOGRAPHIC_CENTER:
+                    return (this.descent - this.ascent) / 2;
+                default:
+                    throw new ArgumentError("Error #2008: Parameter baseline must be one of the accepted values.", 2008);
+            }
+        }
 
         // This function does nothing in Flash Player 32
         public function flushAtomData():void { }
