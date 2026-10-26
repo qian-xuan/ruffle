@@ -142,11 +142,31 @@ pub fn get_atom_index_at_point<'gc>(
         .fallback()
         .char_index_at_point(fallback_point)
         .map_or(-1, |i| i as i32);
+
+    // For empty text lines, the fallback EditText's content bounds are
+    // zero-size (measured_width == 0), so char_index_at_point always returns
+    // None. Flash Player returns the terminator atom (index 0) for clicks
+    // within the line's vertical extent, allowing the cursor to be placed.
+    let index = if index == -1 {
+        let metrics = text_line.metrics();
+        if metrics.text_width.get() <= 0
+            && local.y >= -metrics.fallback_ascent
+            && local.y <= metrics.fallback_descent
+            && atom_count(text_line) > 0
+        {
+            0
+        } else {
+            -1
+        }
+    } else {
+        index
+    };
+
     Ok(index.into())
 }
 
 pub fn get_atom_word_boundary_on_left<'gc>(
-    activation: &mut Activation<'_, 'gc>,
+    _activation: &mut Activation<'_, 'gc>,
     this: Value<'gc>,
     args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
