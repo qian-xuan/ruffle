@@ -238,6 +238,10 @@ impl UiBackend for WebUiBackend {
         true
     }
 
+    fn clipboard_requires_paste_event(&self) -> bool {
+        true
+    }
+
     fn set_clipboard_content(&mut self, content: String) {
         self.set_clipboard_content_buffer(content.to_owned());
 
