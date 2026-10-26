@@ -355,6 +355,28 @@ pub fn get_last_line<'gc>(
     Ok(line.unwrap_or(Value::Null))
 }
 
+pub fn get_text_line_at_char_index<'gc>(
+    _activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap().as_text_block_object().unwrap();
+    let char_index = args.get_i32(0);
+
+    for line in this.lines() {
+        let begin = line.begin_index() as i32;
+        let end = begin + line.raw_text_length() as i32;
+        if char_index >= begin && char_index < end {
+            return Ok(line
+                .object2()
+                .map(Value::from)
+                .unwrap_or(Value::Null));
+        }
+    }
+
+    Ok(Value::Null)
+}
+
 pub fn release_lines<'gc>(
     activation: &mut Activation<'_, 'gc>,
     this: Value<'gc>,

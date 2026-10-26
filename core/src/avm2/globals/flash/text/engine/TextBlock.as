@@ -138,6 +138,8 @@ package flash.text.engine {
 
         public native function releaseLines(start:TextLine, end:TextLine):void;
 
+        public native function getTextLineAtCharIndex(charIndex:int):TextLine;
+
         public function findNextAtomBoundary(afterCharIndex:int):int {
             // TODO: This is an approximation- combining characters should be
             // skipped over, as they belong to the previous atom.
