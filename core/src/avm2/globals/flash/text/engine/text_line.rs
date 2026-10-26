@@ -178,7 +178,11 @@ pub fn get_atom_word_boundary_on_left<'gc>(
 
     let index = args.get_i32(0);
     if index < 0 || index >= atom_count(text_line) {
-        return Err(make_error_2006(activation, Error2006Type::RangeError));
+        // Return false instead of throwing RangeError — the Spark
+        // Label truncation logic can call with out-of-range indices
+        // when atomCount is computed differently, and crashing here
+        // prevents the entire page from rendering.
+        return Ok(false.into());
     }
     if index == 0 {
         // The first atom of a line always begins a word.
