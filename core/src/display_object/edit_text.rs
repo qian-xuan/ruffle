@@ -2703,9 +2703,11 @@ impl<'gc> TDisplayObject<'gc> for EditText<'gc> {
             b.abs() < ALLOWED_SHEAR && c.abs() < ALLOWED_SHEAR && a > 0.0 && d > 0.0
         }
 
-        // EditText is not rendered if device font is used
-        // and if it's rotated, sheared, or reflected.
-        if self.is_device_font() && !is_transform_positive_scale_only(context) {
+        // Classic TextField with a device font is not rendered when rotated,
+        // sheared, or reflected (matching Flash Player). FTE `TextLine` is a
+        // distinct display object whose device-font glyphs render under any
+        // transform, so it is exempted from this rule.
+        if self.is_device_font() && !self.is_fte() && !is_transform_positive_scale_only(context) {
             return;
         }
 
